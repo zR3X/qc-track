@@ -1,0 +1,10 @@
+﻿node_modules/
+backend/qc.db
+backend/qc.db-shm
+backend/qc.db-wal
+dist/
+.env
+.claude/
+frontend/.claude/
+frontend/screenshot_*.png
+frontend/take_screenshots.cjs
