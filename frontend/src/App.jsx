@@ -28,6 +28,7 @@ function AppRoutes() {
       <Route path="/" element={<PublicStatus />} />
       <Route path="/login" element={user ? <Navigate to="/dashboard" /> : <Login />} />
       <Route path="/dashboard" element={<PrivateRoute><Layout><Dashboard /></Layout></PrivateRoute>} />
+      <Route path="/dashboard/:analystId" element={<PrivateRoute><Layout><Dashboard /></Layout></PrivateRoute>} />
       <Route path="/samples/:id" element={<PrivateRoute roles={["admin","analyst"]}><Layout><SampleDetail /></Layout></PrivateRoute>} />
       <Route path="/samples/:id/history" element={<PrivateRoute roles={["admin"]}><Layout><SampleHistory /></Layout></PrivateRoute>} />
       <Route path="/admin" element={<PrivateRoute roles={["admin"]}><Layout><AdminPanel /></Layout></PrivateRoute>} />

@@ -198,9 +198,31 @@ export default function SampleDetail() {
       <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-2xl p-6 mb-6 shadow-sm dark:shadow-none">
         <div className="flex items-start justify-between flex-wrap gap-4">
           <div>
-            <p className="font-mono text-2xl font-bold text-indigo-600 dark:text-indigo-400 mb-1">{sample.code}</p>
-            <h1 className="text-xl font-bold text-gray-900 dark:text-white">{sample.product_name}</h1>
-            {sample.batch && <p className="text-gray-500 dark:text-gray-400 text-sm mt-1">Lote: {sample.batch}</p>}
+            <p className="font-mono text-2xl font-bold text-indigo-600 dark:text-indigo-400 mb-1">
+              {sample.codigo_orden || sample.code}
+            </p>
+            <h1 className="text-xl font-bold text-gray-900 dark:text-white">{sample.nombre_material || sample.product_name}</h1>
+            {sample.codigo_material && <p className="text-gray-500 dark:text-gray-400 text-sm mt-1">Código de material: {sample.codigo_material}</p>}
+
+            <div className="flex flex-wrap gap-2 mt-3">
+              {sample.grupo_turno && (
+                <span className="inline-flex items-center gap-1 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800/40 rounded-full px-3 py-1 text-xs font-semibold">
+                  Turno {sample.grupo_turno}
+                </span>
+              )}
+              {sample.nombre_reactor && (
+                <span className="inline-flex items-center gap-1 bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-gray-700 rounded-full px-3 py-1 text-xs font-medium">
+                  {sample.nombre_reactor}
+                </span>
+              )}
+              {(sample.nombre_empleado || sample.apellido_empleado) && (
+                <span className="inline-flex items-center gap-1 bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-gray-700 rounded-full px-3 py-1 text-xs font-medium">
+                  👤 {sample.nombre_empleado} {sample.apellido_empleado}
+                </span>
+              )}
+            </div>
+
+            {sample.comentarios && <p className="text-gray-600 dark:text-gray-400 text-sm mt-2 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/40 rounded-lg px-3 py-2">💬 {sample.comentarios}</p>}
             {sample.description && <p className="text-gray-400 dark:text-gray-500 text-sm mt-1 italic">{sample.description}</p>}
           </div>
           <div className="flex items-start gap-2 flex-wrap">

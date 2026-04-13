@@ -6,8 +6,12 @@ const TZ = "America/Mexico_City";
  */
 function parseUTC(str) {
   if (!str) return null;
+  // mysql2 ya devuelve un Date con el valor UTC correcto
+  if (str instanceof Date) return str;
   const s = String(str);
-  if (s.endsWith("Z") || s.includes("+")) return new Date(s);
+  // ISO con zona horaria explícita — respetar tal cual
+  if (s.endsWith("Z") || /[+-]\d{2}:\d{2}$/.test(s)) return new Date(s);
+  // MySQL datetime sin zona ("YYYY-MM-DD HH:MM:SS") → tratar como UTC
   return new Date(s.replace(" ", "T") + "Z");
 }
 

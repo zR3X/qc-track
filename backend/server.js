@@ -4,6 +4,7 @@ const cors = require("cors");
 const db = require("./db");
 const jwt = require("jsonwebtoken");
 const JWT_SECRET = process.env.JWT_SECRET || "qc-track-secret-key-change-in-production-2026";
+const nowUTC = () => new Date().toISOString().slice(0, 19).replace("T", " ");
 
 const app = express();
 app.use(cors());
@@ -29,8 +30,10 @@ app.get("/api/events", (req, res) => {
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache");
   res.setHeader("Connection", "keep-alive");
+  res.setHeader("X-Accel-Buffering", "no");
   res.flushHeaders();
   res.write(":\n\n");
+  if (typeof res.flush === "function") res.flush();
   sseClients.add(res);
   req.on("close", () => sseClients.delete(res));
 });
@@ -49,20 +52,28 @@ app.post("/api/acknowledged", (req, res) => {
 
 function broadcast(event, data) {
   const payload = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
-  for (const client of sseClients) client.write(payload);
+  for (const client of sseClients) {
+    client.write(payload);
+    if (typeof client.flush === "function") client.flush();
+  }
 }
 
 // Endpoint público: crear muestra (sin auth)
 app.post("/api/new-sample", async (req, res) => {
   console.log("POST /api/new-sample reached");
-  const { product_name, batch, description } = req.body;
+  const {
+    product_name, batch, description,
+    grupo_turno, numero_empleado, nombre_empleado, apellido_empleado,
+    planta, codigo_reactor, nombre_reactor, codigo_material, nombre_material,
+    codigo_orden, fases, comentarios,
+  } = req.body;
   if (!product_name) return res.status(400).json({ error: "Nombre de producto requerido" });
 
   try {
     const year = new Date().getFullYear();
     const [result] = await db.execute(
-      "INSERT INTO muestras (codigo, nombre_producto, lote, descripcion, asignado_a, creado_por) VALUES (?,?,?,?,?,?)",
-      [`MCA-${year}-000`, product_name, batch || null, description || null, null, null]
+      "INSERT INTO muestras (codigo, nombre_producto, lote, descripcion, asignado_a, creado_por, creado_en) VALUES (?,?,?,?,?,?,?)",
+      [`MCA-${year}-000`, product_name, batch || null, description || null, null, null, nowUTC()]
     );
     const sampleId = result.insertId;
     const code = `MCA-${year}-${String(sampleId).padStart(3, "0")}`;
@@ -104,19 +115,57 @@ app.post("/api/new-sample", async (req, res) => {
     }));
 
     const fullSample = {
-      id:           sample.id,
-      code:         sample.codigo,
-      product_name: sample.nombre_producto,
-      batch:        sample.lote,
-      description:  sample.descripcion,
-      status:       "pending",
-      attempt:      sample.intento,
-      assigned_to:  sample.asignado_a,
-      created_by:   sample.creado_por,
-      created_at:   sample.creado_en,
-      updated_at:   sample.actualizado_en,
+      id:                sample.id,
+      code:              sample.codigo,
+      product_name:      sample.nombre_producto,
+      batch:             sample.lote,
+      description:       sample.descripcion,
+      status:            "pending",
+      attempt:           sample.intento,
+      assigned_to:       sample.asignado_a,
+      created_by:        sample.creado_por,
+      created_at:        sample.creado_en,
+      updated_at:        sample.actualizado_en,
+      // Campos de Registo_ccr — disponibles desde el body del request
+      codigo_orden:      codigo_orden      || null,
+      grupo_turno:       grupo_turno       || null,
+      numero_empleado:   numero_empleado   || null,
+      nombre_empleado:   nombre_empleado   || null,
+      apellido_empleado: apellido_empleado || null,
+      planta:            planta            || null,
+      codigo_reactor:    codigo_reactor    || null,
+      nombre_reactor:    nombre_reactor    || null,
+      codigo_material:   codigo_material   || null,
+      nombre_material:   nombre_material   || null,
+      fases:             fases             || null,
+      comentarios:       comentarios       || null,
       steps,
     };
+
+    // Guardar en Registo_ccr si se enviaron los campos adicionales
+    if (grupo_turno && numero_empleado) {
+      await db.execute(
+        `INSERT INTO Registo_ccr
+          (muestra_id, grupo_turno, codigo_orden, numero_empleado, nombre_empleado, apellido_empleado,
+           planta, codigo_reactor, nombre_reactor, codigo_material, nombre_material, fases, comentarios, noti)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,1)`,
+        [
+          sampleId,
+          grupo_turno,
+          codigo_orden      || null,
+          numero_empleado,
+          nombre_empleado   || null,
+          apellido_empleado || null,
+          planta            || null,
+          codigo_reactor    || null,
+          nombre_reactor    || null,
+          codigo_material   || null,
+          nombre_material   || null,
+          fases             || null,
+          comentarios       || null,
+        ]
+      );
+    }
 
     broadcast("new-sample", { id: fullSample.id, code: fullSample.code, product_name: fullSample.product_name, created_at: fullSample.created_at });
 
@@ -131,6 +180,7 @@ app.use("/api/auth",    require("./routes/auth"));
 app.use("/api/samples", require("./routes/samples"));
 app.use("/api/users",   require("./routes/users"));
 app.use("/api/steps",   require("./routes/steps"));
+app.use("/api/ccr",     require("./routes/ccr"));
 
 app.get("/api/health", (req, res) => res.json({ status: "ok" }));
 

@@ -12,7 +12,7 @@ import { useToast, ToastContainer } from "../components/Toast";
 import { fmtDate } from "../utils/date";
 
 const HIDDEN_STEPS = new Set(["Ingreso", "Toma de muestra"]);
-const PAGE_SIZE = 10;
+const PAGE_SIZE = 12;
 
 const STEP_STATUS = {
   passed:      { bg: "bg-green-500",                   icon: Check,       iconColor: "text-white" },
@@ -32,79 +32,353 @@ const SAMPLE_ACCENT = {
 function StepDot({ step }) {
   const cfg = STEP_STATUS[step.status] || STEP_STATUS.pending;
   const Icon = cfg.icon;
+  const active = step.status === "in_progress";
   return (
-    <div className="flex flex-col items-center gap-1 flex-1 min-w-0">
-      <div className={`relative w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 ${cfg.bg} ${cfg.pulse ? "animate-pulse" : ""}`}>
-        <Icon size={14} className={`${cfg.iconColor} ${step.status === "in_progress" ? "animate-spin" : ""}`} />
+    <div className="flex flex-col items-center gap-1.5 flex-1 min-w-0">
+      <div className={`relative w-14 h-14 rounded-full flex items-center justify-center flex-shrink-0 ${cfg.bg} ${active ? "animate-pulse ring-4 ring-blue-300 dark:ring-blue-700" : ""}`}>
+        <Icon size={20} className={`${cfg.iconColor} ${active ? "animate-spin" : ""}`} />
       </div>
-      <span className="text-[10px] text-gray-400 dark:text-gray-500 text-center leading-tight truncate w-full px-0.5">
+      <span className={`text-xs text-center leading-tight truncate w-full px-0.5 ${active ? "font-bold text-blue-600 dark:text-blue-400" : "text-gray-400 dark:text-gray-500"}`}>
         {step.step_name}
       </span>
     </div>
   );
 }
 
+const INPUT_CLS = "w-full bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 text-gray-900 dark:text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 transition-all placeholder-gray-400 dark:placeholder-gray-600 disabled:opacity-50";
+const LABEL_CLS = "block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1";
+
+const STEPS = [
+  { label: "Turno y Empleado" },
+  { label: "Material" },
+  { label: "Confirmar" },
+];
+
+function StepIndicator({ current }) {
+  return (
+    <div className="flex items-center gap-0 mb-6">
+      {STEPS.map((s, i) => (
+        <div key={i} className="flex items-center flex-1 last:flex-none">
+          <div className="flex flex-col items-center gap-1">
+            <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold transition-all ${
+              i < current ? "bg-indigo-600 text-white" :
+              i === current ? "bg-indigo-600 text-white ring-4 ring-indigo-100 dark:ring-indigo-900/40" :
+              "bg-gray-100 dark:bg-gray-800 text-gray-400 dark:text-gray-600"
+            }`}>
+              {i < current ? "✓" : i + 1}
+            </div>
+            <span className={`text-[10px] font-medium whitespace-nowrap ${i === current ? "text-indigo-600 dark:text-indigo-400" : "text-gray-400 dark:text-gray-600"}`}>
+              {s.label}
+            </span>
+          </div>
+          {i < STEPS.length - 1 && (
+            <div className={`flex-1 h-0.5 mx-1 mb-4 transition-all ${i < current ? "bg-indigo-500" : "bg-gray-200 dark:bg-gray-700"}`} />
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function NewSampleModal({ onClose, onCreated }) {
-  const [form, setForm] = useState({ product_name: "", batch: "", description: "" });
+  const [step, setStep] = useState(0);
+  const [form, setForm] = useState({
+    product_name: "", batch: "", description: "",
+    grupo_turno: "", codigo_orden: "",
+    numero_empleado: "", nombre_empleado: "", apellido_empleado: "",
+    planta: "", codigo_reactor: "", nombre_reactor: "",
+    codigo_material: "", nombre_material: "",
+    fases: "", comentarios: "",
+  });
+  const [plantas, setPlantas] = useState([]);
+  const [reactores, setReactores] = useState([]);
+  const [materiales, setMateriales] = useState([]);
+  const [matSugerencias, setMatSugerencias] = useState([]);
+  const [empSugerencias, setEmpSugerencias] = useState([]);
+  const [empleadoBuscado, setEmpleadoBuscado] = useState(false);
+  const [empleadoError, setEmpleadoError] = useState("");
+  const [loadingEmp, setLoadingEmp] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    setLoading(true);
-    setError("");
+  const set = (key, val) => setForm(f => ({ ...f, [key]: val }));
+
+  useEffect(() => {
+    axios.get("/api/ccr/plantas").then(r => setPlantas(r.data)).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    setReactores([]);
+    setMateriales([]);
+    setMatSugerencias([]);
+    setForm(f => ({ ...f, codigo_reactor: "", nombre_reactor: "", codigo_material: "", nombre_material: "" }));
+    if (!form.planta) return;
+    axios.get(`/api/ccr/reactores?planta=${encodeURIComponent(form.planta)}`)
+      .then(r => setReactores(r.data)).catch(() => {});
+  }, [form.planta]);
+
+  useEffect(() => {
+    setMateriales([]);
+    setMatSugerencias([]);
+    setForm(f => ({ ...f, codigo_material: "", nombre_material: "" }));
+    if (!form.codigo_reactor) return;
+    axios.get(`/api/ccr/materiales?reactor=${encodeURIComponent(form.codigo_reactor)}`)
+      .then(r => setMateriales(r.data)).catch(() => {});
+  }, [form.codigo_reactor]);
+
+  // Sugerencias de empleado con debounce 400ms al escribir
+  useEffect(() => {
+    setEmpleadoBuscado(false); setEmpleadoError(""); setEmpSugerencias([]);
+    setForm(f => ({ ...f, nombre_empleado: "", apellido_empleado: "" }));
+    if (!form.numero_empleado) return;
+    const t = setTimeout(async () => {
+      setLoadingEmp(true);
+      try {
+        const { data } = await axios.get(`/api/ccr/empleados?q=${form.numero_empleado}`);
+        setEmpSugerencias(data);
+        // Si hay coincidencia exacta, seleccionar automáticamente
+        const exacto = data.find(e => String(e.numero) === form.numero_empleado);
+        if (exacto) {
+          setForm(f => ({ ...f, nombre_empleado: exacto.nombre, apellido_empleado: exacto.apellido }));
+          setEmpleadoBuscado(true);
+          setEmpSugerencias([]);
+        }
+      } catch {
+        setEmpSugerencias([]);
+      } finally { setLoadingEmp(false); }
+    }, 400);
+    return () => clearTimeout(t);
+  }, [form.numero_empleado]);
+
+  const seleccionarEmpleado = (emp) => {
+    setForm(f => ({ ...f, numero_empleado: String(emp.numero), nombre_empleado: emp.nombre, apellido_empleado: emp.apellido }));
+    setEmpleadoBuscado(true);
+    setEmpSugerencias([]);
+  };
+
+  const confirmarEmpleado = () => {};
+
+  const handleReactorChange = (e) => {
+    const val = e.target.value.trim();
+    const selected = reactores.find(r => String(r.codigo).trim() === val);
+    setForm(f => ({ ...f, codigo_reactor: selected?.codigo || "", nombre_reactor: selected?.nombre || "", codigo_material: "", nombre_material: "" }));
+  };
+
+  const handleCodigoMaterialChange = (e) => {
+    const val = e.target.value.replace(/\D/g, "").slice(0, 8);
+    setForm(f => ({ ...f, codigo_material: val, nombre_material: "" }));
+    if (val.length === 0) { setMatSugerencias([]); return; }
+    const filtradas = materiales.filter(m => String(m.codigo).trim().startsWith(val));
+    setMatSugerencias(filtradas.slice(0, 8));
+    if (filtradas.length === 1 && String(filtradas[0].codigo).trim() === val) {
+      setForm(f => ({ ...f, codigo_material: filtradas[0].codigo, nombre_material: filtradas[0].nombre }));
+      setMatSugerencias([]);
+    }
+  };
+
+  const seleccionarMaterial = (m) => {
+    setForm(f => ({ ...f, codigo_material: m.codigo, nombre_material: m.nombre }));
+    setMatSugerencias([]);
+  };
+
+  const canNext = [
+    form.grupo_turno && empleadoBuscado,                   // paso 0: turno + empleado
+    form.codigo_material && form.nombre_material,          // paso 1: material
+    true,                                                  // paso 2: confirmar (comentarios opcional)
+  ];
+
+  const handleSubmit = async () => {
+    setLoading(true); setError("");
     try {
-      const data = await axios.post("/api/new-sample", form).then(r => r.data);
+      const payload = { ...form, product_name: form.nombre_material || form.codigo_material, batch: form.codigo_material };
+      const data = await axios.post("/api/new-sample", payload).then(r => r.data);
       onCreated(data);
     } catch (err) {
       setError(err.response?.data?.error || "Error al crear muestra");
-    } finally {
-      setLoading(false);
-    }
+    } finally { setLoading(false); }
   };
 
   return (
     <div className="fixed inset-0 bg-black/40 dark:bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={onClose}>
-      <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-2xl w-full max-w-md p-6 animate-slide-up shadow-2xl" onClick={e => e.stopPropagation()}>
-        <div className="flex items-center justify-between mb-6">
+      <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-2xl w-full max-w-lg p-6 animate-slide-up shadow-2xl" onClick={e => e.stopPropagation()}>
+
+        <div className="flex items-center justify-between mb-4">
           <h3 className="text-lg font-bold text-gray-900 dark:text-white">Nueva Muestra</h3>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-white transition-colors"><X size={18} /></button>
         </div>
+
+        <StepIndicator current={step} />
+
         {error && <p className="mb-4 text-sm text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/40 border border-red-300 dark:border-red-800 rounded-lg px-3 py-2">{error}</p>}
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Producto *</label>
-            <input value={form.product_name} onChange={e => setForm(f => ({ ...f, product_name: e.target.value }))}
-              placeholder="Nombre del producto"
-              className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 text-gray-900 dark:text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 transition-all placeholder-gray-400 dark:placeholder-gray-600"
-            />
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Lote</label>
-            <input value={form.batch} onChange={e => setForm(f => ({ ...f, batch: e.target.value }))}
-              placeholder="LOT-001"
-              className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 text-gray-900 dark:text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 transition-all placeholder-gray-400 dark:placeholder-gray-600"
-            />
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Descripción</label>
-            <textarea value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
-              placeholder="Descripción opcional..." rows={2}
-              className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 text-gray-900 dark:text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 transition-all placeholder-gray-400 dark:placeholder-gray-600 resize-none"
-            />
-          </div>
-          <div className="flex gap-2 pt-2">
-            <button type="button" onClick={onClose}
-              className="flex-1 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 py-2 rounded-lg text-sm font-medium transition-all">
-              Cancelar
+
+        <div className="min-h-[180px]">
+
+          {/* ── Paso 0: Turno + Código de Orden + Empleado ── */}
+          {step === 0 && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className={LABEL_CLS}>Turno *</label>
+                  <div className="flex gap-1.5">
+                    {["A", "B", "C", "D"].map(t => (
+                      <button key={t} type="button" onClick={() => set("grupo_turno", t)}
+                        className={`flex-1 py-3 rounded-lg text-sm font-bold border transition-all ${
+                          form.grupo_turno === t
+                            ? "bg-indigo-600 border-indigo-600 text-white"
+                            : "bg-gray-50 dark:bg-gray-800 border-gray-300 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:border-indigo-400"
+                        }`}>{t}</button>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <label className={LABEL_CLS}>Código de Orden</label>
+                  <input value={form.codigo_orden}
+                    onChange={e => set("codigo_orden", e.target.value.replace(/\D/g, "").slice(0, 8))}
+                    placeholder="00000000" maxLength={8} className={INPUT_CLS}
+                  />
+                </div>
+              </div>
+              <div>
+                <label className={LABEL_CLS}>Número de Empleado *</label>
+                <div className="flex gap-2">
+                  <div className="flex-1 relative">
+                    <input value={form.numero_empleado}
+                      onChange={e => set("numero_empleado", e.target.value.replace(/\D/g, "").slice(0, 4))}
+                      placeholder="Ej: 1234" maxLength={4} autoComplete="off" className={INPUT_CLS}
+                    />
+                    {loadingEmp && (
+                      <span className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 border-2 border-indigo-300 border-t-indigo-600 rounded-full animate-spin" />
+                    )}
+                    {empSugerencias.length > 0 && (
+                      <ul className="absolute z-20 top-full left-0 right-0 mt-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg max-h-48 overflow-y-auto text-sm">
+                        {empSugerencias.map((emp, i) => (
+                          <li key={`${emp.numero}-${i}`}>
+                            <button type="button" onClick={() => seleccionarEmpleado(emp)}
+                              className="w-full text-left px-3 py-2.5 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-colors">
+                              <span className="font-mono text-xs text-indigo-600 dark:text-indigo-400">{emp.numero}</span>
+                              <span className="ml-2 text-xs text-gray-700 dark:text-gray-300">{emp.nombre} {emp.apellido}</span>
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                  <button type="button" onClick={confirmarEmpleado} disabled={!empleadoBuscado}
+                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 text-white rounded-lg text-sm font-bold transition-all flex-shrink-0">
+                    OK
+                  </button>
+                </div>
+                {empleadoError && <p className="mt-1 text-xs text-red-500">{empleadoError}</p>}
+                {empleadoBuscado && (
+                  <p className="mt-2 text-sm text-green-600 dark:text-green-400 font-semibold">
+                    ✓ {form.nombre_empleado} {form.apellido_empleado}
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* ── Paso 1: Reactor y Material ── */}
+          {step === 1 && (
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className={LABEL_CLS}>Planta</label>
+                  <select value={form.planta} onChange={e => set("planta", e.target.value)} className={INPUT_CLS}>
+                    <option value="">— Seleccionar —</option>
+                    {plantas.map(p => <option key={p} value={p}>{p}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className={LABEL_CLS}>Reactor</label>
+                  <select value={form.codigo_reactor} onChange={handleReactorChange} disabled={!form.planta} className={INPUT_CLS}>
+                    <option value="">— Seleccionar —</option>
+                    {reactores.map(r => <option key={r.codigo} value={r.codigo}>{r.nombre}</option>)}
+                  </select>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="relative">
+                  <label className={LABEL_CLS}>Código Material *</label>
+                  <input value={form.codigo_material} onChange={handleCodigoMaterialChange}
+                    placeholder="00000000" maxLength={8} disabled={!form.codigo_reactor} className={INPUT_CLS}
+                  />
+                  {matSugerencias.length > 0 && (
+                    <ul className="absolute z-20 top-full left-0 right-0 mt-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg max-h-40 overflow-y-auto text-sm">
+                      {matSugerencias.map((m, i) => (
+                        <li key={`${m.codigo}-${i}`}>
+                          <button type="button" onClick={() => seleccionarMaterial(m)}
+                            className="w-full text-left px-3 py-2 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 text-gray-800 dark:text-gray-200 transition-colors">
+                            <span className="font-mono text-xs text-indigo-600 dark:text-indigo-400">{m.codigo}</span>
+                            <span className="ml-2 truncate text-xs text-gray-500 dark:text-gray-400">{m.nombre}</span>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+                <div>
+                  <label className={LABEL_CLS}>Nombre Material</label>
+                  <input value={form.nombre_material} readOnly placeholder="Auto"
+                    className={`${INPUT_CLS} bg-gray-100 dark:bg-gray-700 cursor-default`}
+                  />
+                </div>
+              </div>
+              <div>
+                <label className={LABEL_CLS}>Fases</label>
+                <input value={form.fases} onChange={e => set("fases", e.target.value)}
+                  placeholder="Ej: Fase 1, Fase 2..." className={INPUT_CLS}
+                />
+              </div>
+            </div>
+          )}
+
+          {/* ── Paso 2: Resumen + Comentarios ── */}
+          {step === 2 && (
+            <div className="space-y-4">
+              <div className="bg-gray-50 dark:bg-gray-800 rounded-xl p-4 space-y-1.5 text-sm">
+                <div className="flex justify-between"><span className="text-gray-500 dark:text-gray-400">Turno</span><span className="font-semibold text-gray-900 dark:text-white">{form.grupo_turno}</span></div>
+                {form.codigo_orden && <div className="flex justify-between"><span className="text-gray-500 dark:text-gray-400">Código de Orden</span><span className="font-mono font-semibold text-gray-900 dark:text-white">{form.codigo_orden}</span></div>}
+                <div className="flex justify-between"><span className="text-gray-500 dark:text-gray-400">Empleado</span><span className="font-semibold text-gray-900 dark:text-white">{form.nombre_empleado} {form.apellido_empleado}</span></div>
+                {form.nombre_reactor && <div className="flex justify-between"><span className="text-gray-500 dark:text-gray-400">Reactor</span><span className="font-semibold text-gray-900 dark:text-white truncate max-w-[60%] text-right">{form.nombre_reactor}</span></div>}
+                <div className="flex justify-between"><span className="text-gray-500 dark:text-gray-400">Material</span><span className="font-semibold text-gray-900 dark:text-white truncate max-w-[60%] text-right">{form.nombre_material}</span></div>
+                <div className="flex justify-between"><span className="text-gray-500 dark:text-gray-400">Código</span><span className="font-mono font-semibold text-gray-900 dark:text-white">{form.codigo_material}</span></div>
+                {form.fases && <div className="flex justify-between"><span className="text-gray-500 dark:text-gray-400">Fases</span><span className="font-semibold text-gray-900 dark:text-white">{form.fases}</span></div>}
+              </div>
+              <div>
+                <label className={LABEL_CLS}>Comentarios</label>
+                <textarea value={form.comentarios} onChange={e => set("comentarios", e.target.value)}
+                  placeholder="Observaciones opcionales..." rows={2}
+                  className={`${INPUT_CLS} resize-none`}
+                />
+              </div>
+            </div>
+          )}
+
+        </div>
+
+        {/* ── Navegación ── */}
+        <div className="flex gap-2 mt-6">
+          <button type="button"
+            onClick={() => step === 0 ? onClose() : setStep(s => s - 1)}
+            className="flex-1 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 py-2 rounded-lg text-sm font-medium transition-all">
+            {step === 0 ? "Cancelar" : "← Atrás"}
+          </button>
+          {step < 2 ? (
+            <button type="button"
+              onClick={() => setStep(s => s + 1)}
+              disabled={!canNext[step]}
+              className="flex-1 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 text-white py-2 rounded-lg text-sm font-semibold transition-all">
+              Siguiente →
             </button>
-            <button type="submit" disabled={loading || !form.product_name}
-              className="flex-1 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white py-2 rounded-lg text-sm font-semibold transition-all flex items-center justify-center gap-2">
+          ) : (
+            <button type="button" onClick={handleSubmit} disabled={loading}
+              className="flex-1 bg-green-600 hover:bg-green-500 disabled:opacity-50 text-white py-2 rounded-lg text-sm font-semibold transition-all flex items-center justify-center gap-2">
               {loading ? <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : null}
               Crear Muestra
             </button>
-          </div>
-        </form>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -152,17 +426,17 @@ const SampleCard = memo(function SampleCard({ sample, isNew, pinned, onPin }) {
       {/* Left: sample info */}
       <div className="p-5 flex flex-col justify-between gap-3 w-52 flex-shrink-0 border-r border-gray-100 dark:border-gray-800">
         <div>
-          <div className="flex items-center gap-1.5 mb-1">
-            <span className="font-mono font-bold text-indigo-600 dark:text-indigo-400 text-xs">{sample.code}</span>
+          <div className="flex items-center gap-1.5 mb-0.5">
+            <h3 className={`font-bold text-sm leading-snug ${sample.codigo_orden ? "text-indigo-600 dark:text-indigo-400" : "text-gray-900 dark:text-white"}`}>{sample.codigo_orden || sample.code}</h3>
             {sample.attempt > 1 && (
-              <span className="text-xs bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400 border border-amber-300 dark:border-amber-700 px-1.5 py-0.5 rounded-full font-medium">
+              <span className="text-xs bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400 border border-amber-300 dark:border-amber-700 px-1.5 py-0.5 rounded-full font-medium flex-shrink-0">
                 #{sample.attempt}
               </span>
             )}
           </div>
-          <h3 className="font-bold text-gray-900 dark:text-white text-sm leading-snug">{sample.product_name}</h3>
+          <h3 className="font-bold text-gray-900 dark:text-white text-sm leading-snug">{sample.nombre_material || sample.product_name}</h3>
+          {sample.codigo_material && <p className="font-bold text-gray-400 dark:text-gray-500 text-sm leading-snug">{sample.codigo_material}</p>}
           <div className="flex flex-col gap-1 mt-2 text-xs text-gray-400 dark:text-gray-500">
-            {sample.batch && <span className="flex items-center gap-1"><Package size={11} />{sample.batch}</span>}
             {sample.assigned_name && <span className="flex items-center gap-1"><User size={11} />{sample.assigned_name}</span>}
             <span className="flex items-center gap-1">
               <Calendar size={11} />
@@ -234,11 +508,16 @@ export default function PublicStatus() {
   }, [samples]);
 
   const filtered = search.trim()
-    ? samples.filter(s =>
-        s.code.includes(search.trim().toUpperCase()) ||
-        s.product_name.toLowerCase().includes(search.trim().toLowerCase()) ||
-        (s.batch || "").toLowerCase().includes(search.trim().toLowerCase())
-      )
+    ? (() => {
+        const term = search.trim().toLowerCase();
+        return samples.filter(s =>
+          s.code.toLowerCase().includes(term) ||
+          (s.product_name || "").toLowerCase().includes(term) ||
+          (s.nombre_material || "").toLowerCase().includes(term) ||
+          (s.codigo_material || "").toLowerCase().includes(term) ||
+          (s.codigo_orden || "").toLowerCase().includes(term)
+        );
+      })()
     : samples;
 
   const pinnedSamples = filtered.filter(s => pinnedIds.has(s.id));
@@ -273,7 +552,7 @@ export default function PublicStatus() {
     <div className="min-h-screen bg-slate-50 dark:bg-gray-950 flex flex-col">
       {/* Header */}
       <header className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 sticky top-0 z-10 shadow-sm dark:shadow-none">
-        <div className="max-w-7xl mx-auto px-4 h-14 flex items-center justify-between gap-4">
+        <div className="w-full px-4 h-14 flex items-center justify-between gap-4">
           <div className="flex items-center gap-2.5 flex-shrink-0">
             <div className="w-7 h-7 bg-indigo-600 rounded-lg flex items-center justify-center">
               <FlaskConical size={14} className="text-white" />
@@ -316,7 +595,7 @@ export default function PublicStatus() {
         </div>
       </header>
 
-      <div className="flex-1 max-w-7xl mx-auto w-full px-4 py-8">
+      <div className="flex-1 w-full px-4 py-8">
 
         {/* Pinned section */}
         {pinnedSamples.length > 0 && (
@@ -326,7 +605,7 @@ export default function PublicStatus() {
               <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">Fijadas</span>
               <span className="text-xs text-gray-400 dark:text-gray-600">({pinnedSamples.length})</span>
             </div>
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
               {pinnedSamples.map(s => (
                 <SampleCard key={s.id} sample={s} isNew={s.id === newSampleId} pinned={true} onPin={togglePin} />
               ))}
@@ -337,7 +616,7 @@ export default function PublicStatus() {
 
         {/* Loading skeleton */}
         {loadingList && (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
             {[1, 2, 3, 4].map(i => (
               <div key={i} className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 border-l-4 border-l-gray-200 dark:border-l-gray-700 rounded-2xl p-5 animate-pulse">
                 <div className="flex justify-between mb-3">
@@ -379,7 +658,7 @@ export default function PublicStatus() {
               </div>
             )}
 
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
               {paginated.map(s => (
                 <SampleCard key={s.id} sample={s} isNew={s.id === newSampleId} pinned={false} onPin={togglePin} />
               ))}

@@ -39,6 +39,19 @@ function toApiSample(r) {
     updated_at:      r.actualizado_en,
     assigned_name:   r.assigned_name   || null,
     created_by_name: r.created_by_name || null,
+    // Campos de Registo_ccr
+    codigo_orden:    r.codigo_orden    || null,
+    grupo_turno:     r.grupo_turno     || null,
+    numero_empleado: r.numero_empleado || null,
+    nombre_empleado: r.nombre_empleado || null,
+    apellido_empleado: r.apellido_empleado || null,
+    planta:          r.planta          || null,
+    codigo_reactor:  r.codigo_reactor  || null,
+    nombre_reactor:  r.nombre_reactor  || null,
+    codigo_material: r.codigo_material || null,
+    nombre_material: r.nombre_material || null,
+    fases:           r.fases           || null,
+    comentarios:     r.comentarios     || null,
   };
 }
 
@@ -97,6 +110,59 @@ async function getStepsForSamples(sampleIds) {
   return map;
 }
 
+// ── STATS por analista (solo admin) ───────────────────────────────────────
+router.get("/analyst-stats/:analystId", authMiddleware(["admin"]), async (req, res) => {
+  try {
+    const { analystId } = req.params;
+
+    const [[counts]] = await db.execute(`
+      SELECT
+        COUNT(*)                                                          AS total,
+        SUM(m.estado = 'completada')                                      AS completed,
+        SUM(m.estado = 'rechazada')                                       AS rejected,
+        SUM(m.estado = 'en_proceso')                                      AS in_progress,
+        SUM(m.estado = 'pendiente')                                       AS pending,
+        SUM(m.estado = 'cancelada')                                       AS cancelled,
+        SUM(m.intento > 1)                                                AS retried,
+        ROUND(AVG(CASE WHEN m.estado = 'completada'
+          THEN TIMESTAMPDIFF(MINUTE, m.creado_en, m.actualizado_en) END)) AS avg_minutes
+      FROM muestras m
+      WHERE m.asignado_a = ?
+    `, [analystId]);
+
+    const [byTurno] = await db.execute(`
+      SELECT rc.grupo_turno AS turno, COUNT(*) AS count
+      FROM muestras m
+      JOIN Registo_ccr rc ON rc.muestra_id = m.id
+      WHERE m.asignado_a = ? AND rc.grupo_turno IS NOT NULL
+      GROUP BY rc.grupo_turno
+      ORDER BY count DESC
+    `, [analystId]);
+
+    const completed = Number(counts.completed) || 0;
+    const rejected  = Number(counts.rejected)  || 0;
+    const approval_rate = (completed + rejected) > 0
+      ? Math.round((completed / (completed + rejected)) * 100)
+      : null;
+
+    res.json({
+      total:       Number(counts.total)       || 0,
+      completed,
+      rejected,
+      in_progress: Number(counts.in_progress) || 0,
+      pending:     Number(counts.pending)     || 0,
+      cancelled:   Number(counts.cancelled)   || 0,
+      retried:     Number(counts.retried)     || 0,
+      approval_rate,
+      avg_minutes: counts.avg_minutes != null ? Number(counts.avg_minutes) : null,
+      by_turno:    byTurno,
+    });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Error del servidor" });
+  }
+});
+
 // ── CREAR muestra (público, sin auth) ──────────────────────────────────────
 router.post("/", async (req, res) => {
   try {
@@ -105,8 +171,8 @@ router.post("/", async (req, res) => {
 
     const year = new Date().getFullYear();
     const [result] = await db.execute(
-      "INSERT INTO muestras (codigo, nombre_producto, lote, descripcion, asignado_a, creado_por) VALUES (?,?,?,?,?,?)",
-      [`MCA-${year}-000`, product_name, batch || null, description || null, assigned_to || null, null]
+      "INSERT INTO muestras (codigo, nombre_producto, lote, descripcion, asignado_a, creado_por, creado_en) VALUES (?,?,?,?,?,?,?)",
+      [`MCA-${year}-000`, product_name, batch || null, description || null, assigned_to || null, null, nowUTC()]
     );
     const sampleId = result.insertId;
     const code = `MCA-${year}-${String(sampleId).padStart(3, "0")}`;
@@ -138,15 +204,21 @@ router.get("/public", async (req, res) => {
   try {
     const { search } = req.query;
     let query = `
-      SELECT m.*, u.nombre as assigned_name
+      SELECT m.*, u.nombre as assigned_name,
+             rc.codigo_orden, rc.grupo_turno, rc.numero_empleado,
+             rc.nombre_empleado, rc.apellido_empleado,
+             rc.planta, rc.codigo_reactor, rc.nombre_reactor,
+             rc.codigo_material, rc.nombre_material, rc.fases, rc.comentarios
       FROM muestras m
       LEFT JOIN usuarios u ON m.asignado_a = u.id
+      LEFT JOIN Registo_ccr rc ON rc.muestra_id = m.id
       WHERE 1=1
     `;
     const params = [];
     if (search) {
-      query += " AND MATCH(m.nombre_producto, m.lote, m.codigo) AGAINST(? IN BOOLEAN MODE)";
-      params.push(`${search}*`);
+      const like = `%${search}%`;
+      query += ` AND (m.nombre_producto LIKE ? OR m.codigo LIKE ? OR rc.codigo_orden LIKE ? OR rc.nombre_material LIKE ? OR rc.codigo_material LIKE ?)`;
+      params.push(like, like, like, like, like);
     }
     query += " ORDER BY m.creado_en DESC";
 
@@ -182,18 +254,27 @@ router.get("/public/:code", async (req, res) => {
 // ── AUTENTICADO: listar todas las muestras ────────────────────────────────
 router.get("/", authMiddleware(["admin", "analyst"]), async (req, res) => {
   try {
-    const { status, search } = req.query;
+    const { status, search, assigned_to } = req.query;
     let query = `
-      SELECT m.*, u.nombre as assigned_name, c.nombre as created_by_name
+      SELECT m.*, u.nombre as assigned_name, c.nombre as created_by_name,
+             rc.codigo_orden, rc.grupo_turno, rc.numero_empleado,
+             rc.nombre_empleado, rc.apellido_empleado,
+             rc.planta, rc.codigo_reactor, rc.nombre_reactor,
+             rc.codigo_material, rc.nombre_material, rc.fases, rc.comentarios
       FROM muestras m
       LEFT JOIN usuarios u ON m.asignado_a = u.id
       LEFT JOIN usuarios c ON m.creado_por = c.id
+      LEFT JOIN Registo_ccr rc ON rc.muestra_id = m.id
       WHERE 1=1
     `;
     const params = [];
     if (status && status !== "all") {
       query += " AND m.estado = ?";
       params.push(ESTADO_MUESTRA[status] || status);
+    }
+    if (assigned_to) {
+      query += " AND m.asignado_a = ?";
+      params.push(assigned_to);
     }
     if (search) {
       query += " AND MATCH(m.nombre_producto, m.lote, m.codigo) AGAINST(? IN BOOLEAN MODE)";
@@ -216,10 +297,15 @@ router.get("/", authMiddleware(["admin", "analyst"]), async (req, res) => {
 router.get("/:id", authMiddleware(["admin", "analyst"]), async (req, res) => {
   try {
     const [rows] = await db.execute(`
-      SELECT m.*, u.nombre as assigned_name, c.nombre as created_by_name
+      SELECT m.*, u.nombre as assigned_name, c.nombre as created_by_name,
+             rc.codigo_orden, rc.grupo_turno, rc.numero_empleado,
+             rc.nombre_empleado, rc.apellido_empleado,
+             rc.planta, rc.codigo_reactor, rc.nombre_reactor,
+             rc.codigo_material, rc.nombre_material, rc.fases, rc.comentarios
       FROM muestras m
       LEFT JOIN usuarios u ON m.asignado_a = u.id
       LEFT JOIN usuarios c ON m.creado_por = c.id
+      LEFT JOIN Registo_ccr rc ON rc.muestra_id = m.id
       WHERE m.id = ?
     `, [req.params.id]);
 

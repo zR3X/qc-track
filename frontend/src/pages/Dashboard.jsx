@@ -1,8 +1,8 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
-import { Link } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 import axios from "axios";
 import { useAuth } from "../context/AuthContext";
-import { Search, FlaskConical, Clock, Loader2, CheckCircle2, XCircle, RefreshCw, Ban, Bell, Globe } from "lucide-react";
+import { Search, FlaskConical, Clock, Loader2, CheckCircle2, XCircle, RefreshCw, Ban, Bell, Globe, User, Target, Timer, RotateCcw, TrendingUp, Sparkles } from "lucide-react";
 import { fmtDate, fmtTime } from "../utils/date";
 import SampleStatusBadge from "../components/SampleStatusBadge";
 import MiniProgress from "../components/MiniProgress";
@@ -18,6 +18,7 @@ const STATS_CONFIG = [
 ];
 
 export default function Dashboard() {
+  const { analystId } = useParams();
   const [samples, setSamples] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState("all");
@@ -26,6 +27,8 @@ export default function Dashboard() {
   const [notifications, setNotifications] = useState([]);
   const [newSampleIds, setNewSampleIds] = useState(new Set());
   const [showNotifs, setShowNotifs] = useState(false);
+  const [analystName, setAnalystName] = useState("");
+  const [analystStats, setAnalystStats] = useState(null);
   const notifRef = useRef(null);
   const { user } = useAuth();
   const { toasts, addToast, removeToast } = useToast();
@@ -35,60 +38,88 @@ export default function Dashboard() {
     return () => clearTimeout(t);
   }, [search]);
 
+  // Cargar nombre y stats del analista cuando hay analystId
+  useEffect(() => {
+    if (!analystId) { setAnalystName(""); setAnalystStats(null); return; }
+    axios.get("/api/users/analysts").then(r => {
+      const found = r.data.find(a => String(a.id) === String(analystId));
+      setAnalystName(found?.name || "");
+    }).catch(() => {});
+    if (user?.role === "admin") {
+      axios.get(`/api/samples/analyst-stats/${analystId}`)
+        .then(r => setAnalystStats(r.data))
+        .catch(() => {});
+    }
+  }, [analystId, user]);
+
   const fetchSamples = useCallback(async () => {
     setLoading(true);
     try {
       const params = {};
       if (filter !== "all") params.status = filter;
       if (debouncedSearch) params.search = debouncedSearch;
+      if (analystId) params.assigned_to = analystId;
       const res = await axios.get("/api/samples", { params });
       setSamples(res.data);
     } catch (e) { console.error(e); }
     finally { setLoading(false); }
-  }, [filter, debouncedSearch]);
+  }, [filter, debouncedSearch, analystId]);
 
   useEffect(() => { fetchSamples(); }, [fetchSamples]);
 
-  // Notifications: missed (localStorage) + real-time (SSE) — analyst only
+  // Ref para acceder a fetchSamples y addToast sin recrear intervalos
+  const fetchSamplesRef = useRef(fetchSamples);
+  const addToastRef = useRef(addToast);
+  useEffect(() => { fetchSamplesRef.current = fetchSamples; }, [fetchSamples]);
+  useEffect(() => { addToastRef.current = addToast; }, [addToast]);
+
+  // ── Helper: marcar IDs como leídas en la BD ──────────────────────────────
+  const markRead = async (ids) => {
+    if (!ids.length) return;
+    try { await axios.put("/api/ccr/notificaciones/leer", { ids }); } catch { /* silent */ }
+  };
+
+  // ── Cargar notificaciones no leídas desde la BD ───────────────────────────
+  const loadNotifications = useCallback(async () => {
+    if (user?.role !== "analyst") return;
+    try {
+      const res = await axios.get("/api/ccr/notificaciones");
+      const unread = res.data;
+      setNotifications(unread.map(s => ({
+        id: s.id,
+        code: s.code,
+        product_name: s.nombre_material || s.product_name,
+        created_at: s.created_at,
+      })));
+      setNewSampleIds(new Set(unread.map(s => s.id)));
+    } catch { /* silent */ }
+  }, [user]);
+
+  // Cargar al montar y cada vez que cambie el usuario
+  useEffect(() => { loadNotifications(); }, [loadNotifications]);
+
+  // Polling cada 5s: detectar nuevas notificaciones en la BD
   useEffect(() => {
     if (user?.role !== "analyst") return;
-
-    // Missed notifications: samples created since last visit, excluding team-acknowledged ones
-    const lastVisit = localStorage.getItem("qc_analyst_last_visit");
-    localStorage.setItem("qc_analyst_last_visit", new Date().toISOString());
-
-    if (lastVisit) {
-      Promise.all([
-        axios.get("/api/samples"),
-        axios.get("/api/acknowledged"),
-      ]).then(([samplesRes, ackRes]) => {
-        const acked = new Set(ackRes.data);
-        const missed = samplesRes.data.filter(s => new Date(s.created_at) > new Date(lastVisit) && !acked.has(s.id));
-        if (missed.length > 0) {
-          setNotifications(missed.map(s => ({ id: s.id, code: s.code, product_name: s.product_name, created_at: s.created_at })));
-          setNewSampleIds(new Set(missed.map(s => s.id)));
-        }
-      }).catch(() => {});
-    }
-
-    // SSE: real-time new samples + team-wide read state
-    const token = localStorage.getItem("qc_token") || "";
-    const es = new EventSource(`/api/events?token=${encodeURIComponent(token)}`);
-    es.addEventListener("new-sample", (e) => {
-      const sample = JSON.parse(e.data);
-      setNotifications(prev => {
-        if (prev.some(n => n.id === sample.id)) return prev;
-        return [{ id: sample.id, code: sample.code, product_name: sample.product_name, created_at: sample.created_at }, ...prev];
-      });
-      setNewSampleIds(prev => new Set([...prev, sample.id]));
-    });
-    es.addEventListener("sample-read", (e) => {
-      const { ids } = JSON.parse(e.data);
-      const readSet = new Set(ids);
-      setNotifications(prev => prev.filter(n => !readSet.has(n.id)));
-      setNewSampleIds(prev => { const s = new Set(prev); ids.forEach(id => s.delete(id)); return s; });
-    });
-    return () => es.close();
+    const interval = setInterval(async () => {
+      try {
+        const res = await axios.get("/api/ccr/notificaciones");
+        const unread = res.data;
+        setNotifications(prev => {
+          const prevIds = new Set(prev.map(n => n.id));
+          const newOnes = unread.filter(s => !prevIds.has(s.id));
+          if (newOnes.length > 0) {
+            newOnes.forEach(s =>
+              addToastRef.current("info", `Nueva muestra: ${s.nombre_material || s.product_name}`, "Nueva muestra recibida")
+            );
+            fetchSamplesRef.current();
+          }
+          return unread.map(s => ({ id: s.id, code: s.code, product_name: s.nombre_material || s.product_name, created_at: s.created_at }));
+        });
+        setNewSampleIds(new Set(unread.map(s => s.id)));
+      } catch { /* silent */ }
+    }, 5000);
+    return () => clearInterval(interval);
   }, [user]);
 
   // Close dropdown when clicking outside
@@ -112,8 +143,13 @@ export default function Dashboard() {
       {/* Header */}
       <div className="flex items-center justify-between mb-6 flex-wrap gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Dashboard</h1>
-          <p className="text-gray-500 dark:text-gray-400 text-sm mt-0.5">Control de muestras en proceso</p>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
+            {analystId && <User size={20} className="text-indigo-500" />}
+            {analystId ? (analystName || "Analista") : "Dashboard"}
+          </h1>
+          <p className="text-gray-500 dark:text-gray-400 text-sm mt-0.5">
+            {analystId ? "Muestras asignadas a este analista" : "Control de muestras en proceso"}
+          </p>
         </div>
         <div className="flex gap-2">
           <Link to="/"
@@ -127,10 +163,10 @@ export default function Dashboard() {
           {user?.role === "analyst" && <div className="relative" ref={notifRef}>
             <button
               onClick={() => setShowNotifs(v => !v)}
-              className={`p-2 rounded-lg transition-all relative ${notifications.length > 0 ? "text-amber-500 hover:text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-900/20" : "text-gray-400 hover:text-gray-700 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800"}`}>
+              className={`p-2 rounded-lg transition-all relative ${notifications.length > 0 ? "text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20" : "text-gray-400 hover:text-gray-700 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800"}`}>
               <Bell size={16} />
               {notifications.length > 0 && (
-                <span className="absolute -top-1 -right-1 w-5 h-5 bg-amber-500 text-white text-xs font-bold rounded-full flex items-center justify-center animate-bounce">
+                <span className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white text-xs font-bold rounded-full flex items-center justify-center animate-bounce">
                   {notifications.length > 9 ? "9+" : notifications.length}
                 </span>
               )}
@@ -141,7 +177,13 @@ export default function Dashboard() {
                 <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 dark:border-gray-800">
                   <span className="text-sm font-semibold text-gray-800 dark:text-white">Notificaciones</span>
                   {notifications.length > 0 && (
-                    <button onClick={() => { axios.post("/api/acknowledged", { ids: notifications.map(n => n.id) }); setShowNotifs(false); }}
+                    <button onClick={() => {
+                      const ids = notifications.map(n => n.id);
+                      markRead(ids);
+                      setNotifications([]);
+                      setNewSampleIds(new Set());
+                      setShowNotifs(false);
+                    }}
                       className="text-xs text-indigo-500 hover:text-indigo-700 dark:hover:text-indigo-300 transition-colors">
                       Marcar todas leídas
                     </button>
@@ -157,7 +199,11 @@ export default function Dashboard() {
                     {notifications.map(n => (
                       <li key={n.id}>
                         <button
-                          onClick={() => { axios.post("/api/acknowledged", { ids: [n.id] }); }}
+                          onClick={() => {
+                            markRead([n.id]);
+                            setNotifications(prev => prev.filter(x => x.id !== n.id));
+                            setNewSampleIds(prev => { const s = new Set(prev); s.delete(n.id); return s; });
+                          }}
                           className="w-full text-left px-4 py-3 hover:bg-amber-50 dark:hover:bg-amber-900/10 transition-colors">
                           <div className="flex items-center gap-2">
                             <span className="w-2 h-2 rounded-full bg-amber-400 flex-shrink-0" />
@@ -176,6 +222,64 @@ export default function Dashboard() {
           </div>}
         </div>
       </div>
+
+      {/* Métricas de analista — solo admin en /dashboard/:analystId */}
+      {analystId && user?.role === "admin" && analystStats && (
+        <div className="mb-6 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-2xl p-5">
+          <p className="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-4">Rendimiento</p>
+
+          {/* Fila principal de métricas */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+            <div className="flex flex-col gap-1">
+              <span className="text-xs text-gray-400 dark:text-gray-500 flex items-center gap-1"><FlaskConical size={11} /> Total asignadas</span>
+              <span className="text-2xl font-bold text-gray-900 dark:text-white">{analystStats.total}</span>
+            </div>
+            <div className="flex flex-col gap-1">
+              <span className="text-xs text-gray-400 dark:text-gray-500 flex items-center gap-1"><CheckCircle2 size={11} className="text-green-500" /> Completadas</span>
+              <span className="text-2xl font-bold text-green-600 dark:text-green-400">{analystStats.completed}</span>
+            </div>
+            <div className="flex flex-col gap-1">
+              <span className="text-xs text-gray-400 dark:text-gray-500 flex items-center gap-1"><XCircle size={11} className="text-red-500" /> Rechazadas</span>
+              <span className="text-2xl font-bold text-red-500 dark:text-red-400">{analystStats.rejected}</span>
+            </div>
+            <div className="flex flex-col gap-1">
+              <span className="text-xs text-gray-400 dark:text-gray-500 flex items-center gap-1"><Target size={11} className="text-indigo-500" /> Tasa aprobación</span>
+              <span className={`text-2xl font-bold ${analystStats.approval_rate === null ? "text-gray-400" : analystStats.approval_rate >= 80 ? "text-green-600 dark:text-green-400" : analystStats.approval_rate >= 60 ? "text-amber-500" : "text-red-500"}`}>
+                {analystStats.approval_rate !== null ? `${analystStats.approval_rate}%` : "—"}
+              </span>
+            </div>
+          </div>
+
+          {/* Fila secundaria */}
+          <div className="flex flex-wrap items-center gap-4 pt-3 border-t border-gray-100 dark:border-gray-800">
+            <span className="text-xs text-gray-400 dark:text-gray-500 flex items-center gap-1.5">
+              <Timer size={12} />
+              Tiempo promedio: <span className="font-semibold text-gray-700 dark:text-gray-300">
+                {analystStats.avg_minutes != null
+                  ? analystStats.avg_minutes < 60
+                    ? `${analystStats.avg_minutes} min`
+                    : `${Math.round(analystStats.avg_minutes / 60 * 10) / 10} h`
+                  : "—"}
+              </span>
+            </span>
+            <span className="text-xs text-gray-400 dark:text-gray-500 flex items-center gap-1.5">
+              <RotateCcw size={12} />
+              Reintentos: <span className="font-semibold text-amber-600 dark:text-amber-400">{analystStats.retried}</span>
+            </span>
+            {analystStats.by_turno.length > 0 && (
+              <span className="text-xs text-gray-400 dark:text-gray-500 flex items-center gap-1.5 flex-wrap">
+                <TrendingUp size={12} />
+                Por turno:
+                {analystStats.by_turno.map(t => (
+                  <span key={t.turno} className="bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 px-2 py-0.5 rounded-full text-xs font-semibold">
+                    {t.turno}: {t.count}
+                  </span>
+                ))}
+              </span>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Stats */}
       <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 mb-6">
@@ -220,34 +324,52 @@ export default function Dashboard() {
               onClick={() => {
                 const ingresoStep = sample.steps?.find(s => s.step_name === "Ingreso" && s.status === "pending");
                 if (ingresoStep) axios.put(`/api/samples/${sample.id}/steps/${ingresoStep.id}`, { status: "passed", notes: null });
-                if (newSampleIds.has(sample.id)) axios.post("/api/acknowledged", { ids: [sample.id] });
+                if (newSampleIds.has(sample.id)) {
+                  markRead([sample.id]);
+                  setNotifications(prev => prev.filter(n => n.id !== sample.id));
+                  setNewSampleIds(prev => { const s = new Set(prev); s.delete(sample.id); return s; });
+                }
               }}
               className={`group relative rounded-xl p-5 transition-all animate-fade-in overflow-hidden
                 ${sample.status === "cancelled"
                   ? "bg-zinc-50 dark:bg-zinc-900/60 border border-dashed border-zinc-300 dark:border-zinc-700 grayscale opacity-60 hover:opacity-80"
-                  : "bg-white dark:bg-gray-900 hover:shadow-md dark:hover:bg-gray-900/80 " + (newSampleIds.has(sample.id)
-                    ? "border-2 border-amber-400 dark:border-amber-500"
-                    : "border border-gray-200 dark:border-gray-800 hover:border-indigo-300 dark:hover:border-gray-700")}`}>
+                  : "bg-white dark:bg-gray-900 hover:shadow-md dark:hover:bg-gray-900/80 " + (
+                      !sample.assigned_to
+                        ? "border-2 border-yellow-400 dark:border-yellow-500"
+                        : "border border-gray-200 dark:border-gray-800 hover:border-indigo-300 dark:hover:border-gray-700")}`}>
 
+              {/* Badge "Nuevo" — solo para muestras recién creadas no leídas */}
+              {newSampleIds.has(sample.id) && (
+                <div className="absolute top-0 left-0 z-10 flex items-center gap-1 bg-red-500 text-white pl-1.5 pr-2 py-0.5 rounded-tl-xl rounded-br-lg shadow-md shadow-red-300 dark:shadow-red-900/60">
+                  <Sparkles size={9} className="animate-pulse flex-shrink-0" />
+                  <span className="text-[9px] font-bold uppercase tracking-wider">Nuevo</span>
+                </div>
+              )}
 
               <div className="flex items-start justify-between mb-3">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <p className="font-mono text-sm font-bold text-indigo-600 dark:text-indigo-400 group-hover:text-indigo-700 dark:group-hover:text-indigo-300 transition-colors">{sample.code}</p>
+                <div className="min-w-0 flex-1 pr-2">
+                  <div className="flex items-center gap-1.5 mb-0.5">
+                    <p className={`font-semibold text-sm leading-snug ${sample.codigo_orden ? "text-indigo-600 dark:text-indigo-400" : "text-gray-900 dark:text-white"}`}>{sample.codigo_orden || sample.code}</p>
                     {sample.attempt > 1 && (
-                      <span className="text-xs bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400 border border-amber-300 dark:border-amber-700 px-1.5 py-0.5 rounded-full font-medium">
+                      <span className="text-xs bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400 border border-amber-300 dark:border-amber-700 px-1.5 py-0.5 rounded-full font-medium flex-shrink-0">
                         #{sample.attempt}
                       </span>
                     )}
                   </div>
-                  <p className="text-gray-900 dark:text-white font-semibold text-sm mt-0.5 line-clamp-1">{sample.product_name}</p>
-                  {sample.batch && <p className="text-gray-400 dark:text-gray-500 text-xs mt-0.5">Lote: {sample.batch}</p>}
+                  <p className="text-gray-900 dark:text-white font-semibold text-sm leading-snug line-clamp-1">{sample.nombre_material || sample.product_name}</p>
+                  {sample.codigo_material && <p className="font-bold text-gray-400 dark:text-gray-500 text-sm leading-snug">{sample.codigo_material}</p>}
+                  {sample.grupo_turno && <p className="text-gray-400 dark:text-gray-500 text-xs mt-0.5">Turno {sample.grupo_turno}{sample.nombre_reactor ? ` · ${sample.nombre_reactor}` : ""}</p>}
                 </div>
                 <SampleStatusBadge status={sample.status} />
               </div>
 
               {sample.assigned_name && (
-                <p className="text-xs text-gray-400 dark:text-gray-500 mb-2">Analista: {sample.assigned_name}</p>
+                <p className="text-xs text-gray-400 dark:text-gray-500 mb-1">Analista: {sample.assigned_name}</p>
+              )}
+              {sample.comentarios && (
+                <p className="text-xs text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/40 rounded-lg px-2 py-1 mb-2 line-clamp-2">
+                  💬 {sample.comentarios}
+                </p>
               )}
 
               <MiniProgress steps={sample.steps} />
