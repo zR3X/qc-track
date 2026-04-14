@@ -1,5 +1,5 @@
 import { useMemo, memo } from "react";
-import { fmtDateTime } from "../utils/date";
+import { fmtTime } from "../utils/date";
 
 const STEP_NAMES = ["Entrega", "Análisis", "Resultado"];
 
@@ -35,8 +35,8 @@ const MiniProgress = memo(function MiniProgress({ steps }) {
             title={name}
             className={`h-2.5 rounded-full transition-all ${DOT_COLORS[status] || "bg-gray-300 dark:bg-gray-700"} ${status === "in_progress" ? "animate-pulse" : ""}`}
           />
-          <p className="text-[10px] text-gray-400 dark:text-gray-500 leading-tight truncate">
-            {ts ? fmtDateTime(ts) : "—"}
+          <p className="text-sm text-gray-600 dark:text-gray-300 leading-tight truncate font-semibold text-center">
+            {ts ? fmtTime(ts) : "—"}
           </p>
         </div>
       ))}

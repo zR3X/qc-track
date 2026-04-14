@@ -1,12 +1,13 @@
-import { useState, useEffect, memo } from "react";
+import { useState, useEffect, useCallback, memo } from "react";
 import { Link } from "react-router-dom";
 import axios from "axios";
 import {
   FlaskConical, Search, AlertCircle, Package, User, Calendar,
-  LogIn, Sun, Moon, X, Check, Clock, Loader, SkipForward, Plus, Pin,
+  LogIn, Sun, Moon, X, Check, Clock, Loader, SkipForward, Plus, Pin, MessageSquare,
 } from "lucide-react";
 import SampleStatusBadge from "../components/SampleStatusBadge";
 import MiniProgress from "../components/MiniProgress";
+import ChatPanel from "../components/ChatPanel";
 import { useTheme } from "../context/ThemeContext";
 import { useToast, ToastContainer } from "../components/Toast";
 import { fmtDate } from "../utils/date";
@@ -384,7 +385,7 @@ function NewSampleModal({ onClose, onCreated }) {
   );
 }
 
-const SampleCard = memo(function SampleCard({ sample, isNew, pinned, onPin }) {
+const SampleCard = memo(function SampleCard({ sample, isNew, pinned, onPin, onChat, unreadChat }) {
   const steps = (sample.steps || []).filter(s => !HIDDEN_STEPS.has(s.step_name));
   const accent = SAMPLE_ACCENT[sample.status] || SAMPLE_ACCENT.pending;
 
@@ -400,20 +401,6 @@ const SampleCard = memo(function SampleCard({ sample, isNew, pinned, onPin }) {
               : "bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 shadow-sm dark:shadow-none hover:shadow-md dark:hover:shadow-none hover:border-gray-300 dark:hover:border-gray-700"
       }`}
     >
-      {/* Pin button */}
-      {sample.status !== "cancelled" && (
-        <button
-          onClick={() => onPin(sample.id)}
-          className={`absolute top-2 right-2 z-20 p-1.5 rounded-lg transition-all ${
-            pinned
-              ? "text-indigo-500 bg-indigo-50 dark:bg-indigo-950/40 hover:bg-indigo-100 dark:hover:bg-indigo-900/40"
-              : "text-gray-300 dark:text-gray-700 hover:text-indigo-400 dark:hover:text-indigo-500 hover:bg-gray-100 dark:hover:bg-gray-800"
-          }`}
-          title={pinned ? "Quitar fijado" : "Fijar card"}
-        >
-          <Pin size={13} className={pinned ? "fill-current" : ""} />
-        </button>
-      )}
 
       {sample.status === "cancelled" && (
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-10">
@@ -444,7 +431,42 @@ const SampleCard = memo(function SampleCard({ sample, isNew, pinned, onPin }) {
             </span>
           </div>
         </div>
-        <SampleStatusBadge status={sample.status} />
+        <div className="flex items-center justify-between gap-2">
+          <SampleStatusBadge status={sample.status} />
+          {sample.status !== "cancelled" && (
+            <div className="flex items-center gap-1 flex-shrink-0">
+              {/* Chat */}
+              <button
+                onClick={() => onChat(sample)}
+                className={`relative p-1.5 rounded-lg transition-all ${
+                  unreadChat > 0
+                    ? "bg-red-100 dark:bg-red-900/40 text-red-600 dark:text-red-400"
+                    : "bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 hover:text-indigo-600 dark:hover:text-indigo-400"
+                }`}
+                title="Abrir chat"
+              >
+                <MessageSquare size={14} />
+                {unreadChat > 0 && (
+                  <span className="absolute -top-1 -right-1 w-3.5 h-3.5 bg-red-500 text-white text-[8px] font-bold rounded-full flex items-center justify-center leading-none">
+                    {unreadChat > 9 ? "9+" : unreadChat}
+                  </span>
+                )}
+              </button>
+              {/* Pin */}
+              <button
+                onClick={() => onPin(sample.id)}
+                className={`p-1.5 rounded-lg transition-all ${
+                  pinned
+                    ? "bg-indigo-100 dark:bg-indigo-900/40 text-indigo-600 dark:text-indigo-400"
+                    : "bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 hover:text-indigo-600 dark:hover:text-indigo-400"
+                }`}
+                title={pinned ? "Quitar fijado" : "Fijar card"}
+              >
+                <Pin size={14} className={pinned ? "fill-current" : ""} />
+              </button>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Right: progress + steps */}
@@ -476,6 +498,12 @@ export default function PublicStatus() {
     try { return new Set(JSON.parse(localStorage.getItem("qc_pinned_ids") || "[]")); }
     catch { return new Set(); }
   });
+  const [chatSample, setChatSample] = useState(null);
+  const [unreadOperatorChat, setUnreadOperatorChat] = useState({});
+
+  const markChatRead = useCallback((id) => {
+    setUnreadOperatorChat(prev => ({ ...prev, [id]: 0 }));
+  }, []);
   const { dark, toggle } = useTheme();
   const { toasts, addToast, removeToast } = useToast();
 
@@ -545,6 +573,21 @@ export default function PublicStatus() {
     return () => clearInterval(interval);
   }, [timerKey, totalPages]);
 
+  // Polling mensajes no leídos del analista (para badges en cards)
+  useEffect(() => {
+    const load = () =>
+      axios.get("/api/chat/unread-operator/counts")
+        .then(r => {
+          const map = {};
+          r.data.forEach(row => { map[row.muestra_id] = row.count; });
+          setUnreadOperatorChat(map);
+        })
+        .catch(() => {});
+    load();
+    const id = setInterval(load, 10000);
+    return () => clearInterval(id);
+  }, []);
+
   // Reset page when search changes
   useEffect(() => { setPage(1); setTimerKey(k => k + 1); }, [search]);
 
@@ -607,7 +650,7 @@ export default function PublicStatus() {
             </div>
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
               {pinnedSamples.map(s => (
-                <SampleCard key={s.id} sample={s} isNew={s.id === newSampleId} pinned={true} onPin={togglePin} />
+                <SampleCard key={s.id} sample={s} isNew={s.id === newSampleId} pinned={true} onPin={togglePin} onChat={setChatSample} unreadChat={unreadOperatorChat[s.id] || 0} />
               ))}
             </div>
             {unpinned.length > 0 && <hr className="mt-8 border-gray-200 dark:border-gray-800" />}
@@ -660,7 +703,7 @@ export default function PublicStatus() {
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
               {paginated.map(s => (
-                <SampleCard key={s.id} sample={s} isNew={s.id === newSampleId} pinned={false} onPin={togglePin} />
+                <SampleCard key={s.id} sample={s} isNew={s.id === newSampleId} pinned={false} onPin={togglePin} onChat={setChatSample} unreadChat={unreadOperatorChat[s.id] || 0} />
               ))}
             </div>
 
@@ -703,6 +746,26 @@ export default function PublicStatus() {
             addToast("success", `Muestra "${newSample.product_name}" creada exitosamente.`, "Muestra registrada");
           }}
         />
+      )}
+
+      {/* Chat drawer */}
+      {chatSample && (
+        <>
+          <div
+            className="fixed inset-0 bg-black/20 dark:bg-black/50 z-40"
+            onClick={() => setChatSample(null)}
+          />
+          <div className="fixed right-0 top-0 bottom-0 w-full max-w-sm z-50 p-4 flex flex-col">
+            <ChatPanel
+              sampleId={chatSample.id}
+              sampleCode={chatSample.codigo_orden || chatSample.code}
+              senderName={[chatSample.nombre_empleado?.split(" ")[0], chatSample.apellido_empleado?.split(" ")[0]].filter(Boolean).join(" ") || "Operador"}
+              senderRole="operator"
+              onClose={() => setChatSample(null)}
+              onRead={markChatRead}
+            />
+          </div>
+        </>
       )}
     </div>
   );
