@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { Link, useParams } from "react-router-dom";
 import axios from "axios";
 import { useAuth } from "../context/AuthContext";
+import { useNavActions } from "../context/NavActionsContext";
 import { Search, FlaskConical, Clock, Loader2, CheckCircle2, XCircle, RefreshCw, Ban, Bell, Globe, User, Target, Timer, RotateCcw, TrendingUp, Sparkles, MessageSquare } from "lucide-react";
 import { fmtDate, fmtTime } from "../utils/date";
 import SampleStatusBadge from "../components/SampleStatusBadge";
@@ -32,6 +33,7 @@ export default function Dashboard() {
   const [unreadChat, setUnreadChat] = useState({});
   const notifRef = useRef(null);
   const { user } = useAuth();
+  const { setNavActions } = useNavActions();
   const { toasts, addToast, removeToast } = useToast();
 
   useEffect(() => {
@@ -145,38 +147,20 @@ export default function Dashboard() {
     return () => document.removeEventListener("mousedown", handler);
   }, []);
 
-  const counts = useMemo(() => ({
-    all:         samples.length,
-    pending:     samples.filter(s => s.status === "pending").length,
-    in_progress: samples.filter(s => s.status === "in_progress").length,
-    completed:   samples.filter(s => s.status === "completed").length,
-    rejected:    samples.filter(s => s.status === "rejected").length,
-    cancelled:   samples.filter(s => s.status === "cancelled").length,
-  }), [samples]);
-
-  return (
-    <div className="p-6 lg:p-8 max-w-7xl mx-auto">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-6 flex-wrap gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
-            {analystId && <User size={20} className="text-indigo-500" />}
-            {analystId ? (analystName || "Analista") : "Dashboard"}
-          </h1>
-          <p className="text-gray-500 dark:text-gray-400 text-sm mt-0.5">
-            {analystId ? "Muestras asignadas a este analista" : "Control de muestras en proceso"}
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <Link to="/"
-            className="p-2 text-gray-400 hover:text-gray-700 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-all"
-            title="Ver estado público">
-            <Globe size={16} />
-          </Link>
-          <button onClick={fetchSamples} className="p-2 text-gray-400 hover:text-gray-700 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-all">
-            <RefreshCw size={16} className={loading ? "animate-spin" : ""} />
-          </button>
-          {user?.role === "analyst" && <div className="relative" ref={notifRef}>
+  // Inyectar acciones en el navbar
+  useEffect(() => {
+    setNavActions(
+      <>
+        <Link to="/"
+          className="p-2 text-gray-400 hover:text-gray-700 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-all"
+          title="Ver estado público">
+          <Globe size={16} />
+        </Link>
+        <button onClick={fetchSamples} className="p-2 text-gray-400 hover:text-gray-700 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-all">
+          <RefreshCw size={16} className={loading ? "animate-spin" : ""} />
+        </button>
+        {user?.role === "analyst" && (
+          <div className="relative" ref={notifRef}>
             <button
               onClick={() => setShowNotifs(v => !v)}
               className={`p-2 rounded-lg transition-all relative ${notifications.length > 0 ? "text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20" : "text-gray-400 hover:text-gray-700 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800"}`}>
@@ -205,7 +189,6 @@ export default function Dashboard() {
                     </button>
                   )}
                 </div>
-
                 {notifications.length === 0 ? (
                   <div className="px-4 py-8 text-center text-gray-400 dark:text-gray-600 text-sm">
                     Sin notificaciones nuevas
@@ -235,13 +218,28 @@ export default function Dashboard() {
                 )}
               </div>
             )}
-          </div>}
-        </div>
-      </div>
+          </div>
+        )}
+      </>
+    );
+    return () => setNavActions(null);
+  }, [loading, notifications, showNotifs, user, fetchSamples, setNavActions]);
+
+  const counts = useMemo(() => ({
+    all:         samples.length,
+    pending:     samples.filter(s => s.status === "pending").length,
+    in_progress: samples.filter(s => s.status === "in_progress").length,
+    completed:   samples.filter(s => s.status === "completed").length,
+    rejected:    samples.filter(s => s.status === "rejected").length,
+    cancelled:   samples.filter(s => s.status === "cancelled").length,
+  }), [samples]);
+
+  return (
+    <div className="p-4 lg:p-5">
 
       {/* Métricas de analista — solo admin en /dashboard/:analystId */}
       {analystId && user?.role === "admin" && analystStats && (
-        <div className="mb-6 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-2xl p-5">
+        <div className="mb-4 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-2xl p-4">
           <p className="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-4">Rendimiento</p>
 
           {/* Fila principal de métricas */}
@@ -298,7 +296,7 @@ export default function Dashboard() {
       )}
 
       {/* Stats */}
-      <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 mb-6">
+      <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 mb-4">
         {STATS_CONFIG.map(({ key, label, icon: Icon, color, bg }) => (
           <button key={key} onClick={() => setFilter(key)}
             className={`p-3 rounded-xl border text-left transition-all cursor-pointer
@@ -314,11 +312,11 @@ export default function Dashboard() {
       </div>
 
       {/* Search */}
-      <div className="relative mb-4">
+      <div className="relative mb-3">
         <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500" />
         <input value={search} onChange={e => setSearch(e.target.value)}
           placeholder="Buscar por código, producto o lote..."
-          className="w-full max-w-sm bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 text-gray-900 dark:text-white rounded-lg pl-9 pr-3 py-2 text-sm
+          className="w-full sm:max-w-sm bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 text-gray-900 dark:text-white rounded-lg pl-9 pr-3 py-2 text-sm
             focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all placeholder-gray-400 dark:placeholder-gray-600"
         />
       </div>
@@ -334,7 +332,7 @@ export default function Dashboard() {
           <p>No hay muestras {filter !== "all" ? "con este estado" : ""}</p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-3">
           {samples.map(sample => (
             <div key={sample.id}
               className={`group relative rounded-xl transition-all animate-fade-in overflow-hidden flex flex-col
@@ -364,7 +362,7 @@ export default function Dashboard() {
                     setNewSampleIds(prev => { const s = new Set(prev); s.delete(sample.id); return s; });
                   }
                 }}
-                className="flex-1 p-5 flex flex-col">
+                className="flex-1 p-4 flex flex-col">
 
                 {/* Cuerpo principal — crece para igualar altura */}
                 <div className="flex-1">

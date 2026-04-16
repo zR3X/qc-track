@@ -133,7 +133,7 @@ export default function SampleHistory() {
   const { sample, history } = data;
 
   return (
-    <div className="p-6 lg:p-8 max-w-3xl mx-auto">
+    <div className="p-4 lg:p-5 max-w-3xl">
       {/* Back */}
       <Link to={`/samples/${id}`} className="inline-flex items-center gap-2 text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 text-sm mb-6 transition-colors">
         <ArrowLeft size={14} /> Volver a la muestra

@@ -391,7 +391,7 @@ const SampleCard = memo(function SampleCard({ sample, isNew, pinned, onPin, onCh
 
   return (
     <div
-      className={`relative border-l-4 ${accent} rounded-2xl transition-all flex ${
+      className={`relative border-l-4 ${accent} rounded-2xl transition-all flex flex-col sm:flex-row ${
         sample.status === "cancelled"
           ? "bg-zinc-50 dark:bg-zinc-900/60 border border-dashed border-zinc-300 dark:border-zinc-700 grayscale opacity-60 hover:opacity-80"
           : isNew
@@ -411,8 +411,8 @@ const SampleCard = memo(function SampleCard({ sample, isNew, pinned, onPin, onCh
       )}
 
       {/* Left: sample info */}
-      <div className="p-5 flex flex-col justify-between gap-3 w-52 flex-shrink-0 border-r border-gray-100 dark:border-gray-800">
-        <div>
+      <div className="p-4 sm:p-5 flex flex-row sm:flex-col justify-between gap-3 sm:w-48 flex-shrink-0 border-b border-gray-100 dark:border-gray-800 sm:border-b-0 sm:border-r">
+        <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1.5 mb-0.5">
             <h3 className={`font-bold text-sm leading-snug ${sample.codigo_orden ? "text-indigo-600 dark:text-indigo-400" : "text-gray-900 dark:text-white"}`}>{sample.codigo_orden || sample.code}</h3>
             {sample.attempt > 1 && (
@@ -470,7 +470,7 @@ const SampleCard = memo(function SampleCard({ sample, isNew, pinned, onPin, onCh
       </div>
 
       {/* Right: progress + steps */}
-      <div className="flex-1 p-5 flex flex-col justify-between gap-3 min-w-0">
+      <div className="flex-1 p-4 sm:p-5 flex flex-col justify-between gap-3 min-w-0">
         {steps.length > 0 ? (
           <>
             <MiniProgress steps={steps} />
@@ -631,8 +631,10 @@ export default function PublicStatus() {
               {dark ? <Sun size={15} className="text-amber-400" /> : <Moon size={15} className="text-indigo-500" />}
             </button>
             <Link to="/login"
-              className="flex items-center gap-1.5 text-sm text-gray-500 dark:text-gray-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors">
-              <LogIn size={14} /> Acceso analistas
+              className="flex items-center gap-1.5 text-sm text-gray-500 dark:text-gray-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
+              title="Acceso analistas">
+              <LogIn size={14} />
+              <span className="hidden sm:inline">Acceso analistas</span>
             </Link>
           </div>
         </div>

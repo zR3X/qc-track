@@ -2,11 +2,13 @@ import { useState, useEffect } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { useTheme } from "../context/ThemeContext";
-import { FlaskConical, LayoutDashboard, Settings, LogOut, Sun, Moon, User, ChevronRight } from "lucide-react";
+import { NavActionsProvider, useNavActions } from "../context/NavActionsContext";
+import { FlaskConical, LayoutDashboard, Settings, LogOut, Sun, Moon, User, ChevronRight, BarChart2, Menu } from "lucide-react";
 import axios from "axios";
 
 function getPageTitle(pathname, analysts) {
   if (pathname === "/dashboard") return "Dashboard";
+  if (pathname === "/analytics") return "Analítica";
   if (pathname === "/admin") return "Administración";
   if (pathname.startsWith("/dashboard/")) {
     const analystId = pathname.split("/")[2];
@@ -18,12 +20,17 @@ function getPageTitle(pathname, analysts) {
   return "QC Track";
 }
 
-export default function Layout({ children }) {
+function LayoutInner({ children }) {
   const { user, logout } = useAuth();
   const { dark, toggle } = useTheme();
+  const { navActions } = useNavActions();
   const location = useLocation();
   const navigate = useNavigate();
   const [analysts, setAnalysts] = useState([]);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  // Cierra sidebar al navegar en móvil
+  useEffect(() => { setSidebarOpen(false); }, [location.pathname]);
 
   useEffect(() => {
     axios.get("/api/users/analysts").then(r => setAnalysts(r.data)).catch(() => {});
@@ -36,8 +43,13 @@ export default function Layout({ children }) {
 
   return (
     <div className="flex h-screen bg-slate-50 dark:bg-gray-950 overflow-hidden">
+      {/* Mobile backdrop */}
+      {sidebarOpen && (
+        <div className="fixed inset-0 bg-black/40 z-30 lg:hidden" onClick={() => setSidebarOpen(false)} />
+      )}
+
       {/* Sidebar */}
-      <aside className="w-16 lg:w-60 flex-shrink-0 bg-white dark:bg-gray-900 border-r border-gray-200 dark:border-gray-800 flex flex-col shadow-sm dark:shadow-none">
+      <aside className={`fixed inset-y-0 left-0 z-40 w-64 lg:w-60 lg:relative lg:z-auto flex-shrink-0 bg-white dark:bg-gray-900 border-r border-gray-200 dark:border-gray-800 flex flex-col shadow-sm dark:shadow-none transform transition-transform duration-200 ease-in-out ${sidebarOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"}`}>
         {/* Logo */}
         <div className="h-14 flex items-center px-4 border-b border-gray-200 dark:border-gray-800 gap-3">
           <div className="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center flex-shrink-0">
@@ -79,6 +91,19 @@ export default function Layout({ children }) {
             );
           })}
 
+          {/* Analytics */}
+          {user?.role === "admin" && (
+            <Link to="/analytics"
+              className={`flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all mt-2
+                ${location.pathname === "/analytics"
+                  ? "bg-indigo-600 text-white"
+                  : "text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-white"}`}
+            >
+              <BarChart2 size={18} className="flex-shrink-0" />
+              <span className="hidden lg:block text-sm font-medium">Analítica</span>
+            </Link>
+          )}
+
           {/* Admin */}
           {user?.role === "admin" && (
             <Link to="/admin"
@@ -98,8 +123,14 @@ export default function Layout({ children }) {
       <div className="flex-1 flex flex-col overflow-hidden">
         {/* Top navbar */}
         <header className="h-14 flex-shrink-0 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 flex items-center justify-between px-5 shadow-sm dark:shadow-none">
+          {/* Hamburger (mobile only) */}
+          <button onClick={() => setSidebarOpen(v => !v)}
+            className="lg:hidden p-2 rounded-lg text-gray-400 hover:text-gray-700 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800 transition-all flex-shrink-0 mr-1">
+            <Menu size={18} />
+          </button>
+
           {/* Page title / breadcrumb */}
-          <div className="flex items-center gap-2 min-w-0">
+          <div className="flex items-center gap-2 min-w-0 flex-1">
             {isAnalystPage && (
               <>
                 <span className="text-sm text-gray-400 dark:text-gray-500 hidden sm:block">Dashboard</span>
@@ -111,6 +142,14 @@ export default function Layout({ children }) {
 
           {/* Right: theme + user + logout */}
           <div className="flex items-center gap-1 flex-shrink-0">
+            {/* Page-injected actions (e.g. Dashboard refresh, notifications) */}
+            {navActions && (
+              <>
+                {navActions}
+                <div className="w-px h-5 bg-gray-200 dark:bg-gray-700 mx-1" />
+              </>
+            )}
+
             {/* Theme toggle */}
             <button onClick={toggle}
               className="p-2 rounded-lg transition-all text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-700 dark:hover:text-gray-300"
@@ -151,5 +190,13 @@ export default function Layout({ children }) {
         </main>
       </div>
     </div>
+  );
+}
+
+export default function Layout({ children }) {
+  return (
+    <NavActionsProvider>
+      <LayoutInner>{children}</LayoutInner>
+    </NavActionsProvider>
   );
 }

@@ -197,7 +197,7 @@ export default function SampleDetail() {
   if (!sample) return null;
 
   return (
-    <div className="flex flex-col lg:flex-row gap-6 p-6 lg:p-8 lg:h-[calc(100vh-3.5rem)] lg:overflow-hidden">
+    <div className="flex flex-col lg:flex-row gap-4 p-4 lg:p-5 lg:h-[calc(100vh-3.5rem)] lg:overflow-hidden">
       {/* ── Left column ── */}
       <div className="flex-1 min-w-0 space-y-6 lg:overflow-y-auto lg:pr-1">
 
@@ -209,7 +209,7 @@ export default function SampleDetail() {
 
       {/* Header */}
       <div className={`bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 border-l-4 ${STATUS_BORDER[sample.status] || "border-l-gray-300"} rounded-2xl shadow-sm dark:shadow-none overflow-hidden`}>
-        <div className="p-6">
+        <div className="p-4 sm:p-6">
           {/* Top row: code + status + attempt */}
           <div className="flex items-start justify-between gap-4 mb-2">
             <div className="min-w-0">
@@ -269,7 +269,7 @@ export default function SampleDetail() {
         </div>
 
         {/* Footer bar: metadata + actions */}
-        <div className="px-6 py-3 bg-gray-50 dark:bg-gray-800/40 border-t border-gray-100 dark:border-gray-800 flex items-center justify-between flex-wrap gap-2">
+        <div className="px-4 sm:px-6 py-3 bg-gray-50 dark:bg-gray-800/40 border-t border-gray-100 dark:border-gray-800 flex items-center justify-between flex-wrap gap-2">
           <div className="flex flex-wrap items-center gap-4">
             <div className="flex items-center gap-1.5 text-sm font-medium text-gray-500 dark:text-gray-400">
               <Calendar size={13} />

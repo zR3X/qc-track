@@ -5,6 +5,7 @@ import PublicStatus from "./pages/PublicStatus";
 import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
 import AdminPanel from "./pages/AdminPanel";
+import Analytics from "./pages/Analytics";
 import SampleDetail from "./pages/SampleDetail";
 import SampleHistory from "./pages/SampleHistory";
 import Layout from "./components/Layout";
@@ -32,6 +33,7 @@ function AppRoutes() {
       <Route path="/samples/:id" element={<PrivateRoute roles={["admin","analyst"]}><Layout><SampleDetail /></Layout></PrivateRoute>} />
       <Route path="/samples/:id/history" element={<PrivateRoute roles={["admin"]}><Layout><SampleHistory /></Layout></PrivateRoute>} />
       <Route path="/admin" element={<PrivateRoute roles={["admin"]}><Layout><AdminPanel /></Layout></PrivateRoute>} />
+      <Route path="/analytics" element={<PrivateRoute roles={["admin"]}><Layout><Analytics /></Layout></PrivateRoute>} />
       <Route path="*" element={<Navigate to="/" />} />
     </Routes>
   );

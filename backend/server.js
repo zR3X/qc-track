@@ -204,12 +204,13 @@ app.post("/api/new-sample", async (req, res) => {
   }
 });
 
-app.use("/api/auth",    require("./routes/auth"));
-app.use("/api/samples", require("./routes/samples"));
-app.use("/api/users",   require("./routes/users"));
-app.use("/api/steps",   require("./routes/steps"));
-app.use("/api/ccr",     require("./routes/ccr"));
-app.use("/api/chat",    require("./routes/chat"));
+app.use("/api/auth",      require("./routes/auth"));
+app.use("/api/samples",   require("./routes/samples"));
+app.use("/api/users",     require("./routes/users"));
+app.use("/api/steps",     require("./routes/steps"));
+app.use("/api/ccr",       require("./routes/ccr"));
+app.use("/api/chat",      require("./routes/chat"));
+app.use("/api/analytics", require("./routes/analytics"));
 
 app.get("/api/health", (req, res) => res.json({ status: "ok" }));
 

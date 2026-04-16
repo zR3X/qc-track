@@ -218,18 +218,13 @@ export default function AdminPanel() {
   const [tab, setTab] = useState("users");
 
   return (
-    <div className="p-6 lg:p-8 max-w-4xl mx-auto">
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Administración</h1>
-        <p className="text-gray-500 dark:text-gray-400 text-sm mt-0.5">Gestión de usuarios y configuración del sistema</p>
-      </div>
-
-      <div className="flex gap-2 mb-6">
+    <div className="p-4 lg:p-5">
+      <div className="flex gap-2 mb-4">
         <TabButton active={tab === "users"} onClick={() => setTab("users")} icon={Users} label="Usuarios" />
         <TabButton active={tab === "steps"} onClick={() => setTab("steps")} icon={ListChecks} label="Pasos QC" />
       </div>
 
-      <div className="animate-fade-in">
+      <div className="animate-fade-in max-w-2xl">
         {tab === "users" ? <UsersTab /> : <StepsTab />}
       </div>
     </div>
