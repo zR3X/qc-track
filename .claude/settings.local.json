@@ -1,0 +1,23 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dir \"C:\\\\Users\\\\itaux\\\\Downloads\\\\qc-track-main\")",
+      "Bash(cmd /c \"dir C:\\\\Users\\\\itaux\\\\Downloads\\\\qc-track-main\")",
+      "Bash(cmd /c \"npx playwright --version 2>&1\")",
+      "Bash(cmd /c \"where npx && npx playwright --version\")",
+      "mcp__ide__getDiagnostics",
+      "Bash(powershell -Command \"npx playwright --version 2>&1\")",
+      "Bash(powershell -Command \"Start-Sleep 2; Invoke-WebRequest -Uri 'http://localhost:3100/api/health' -UseBasicParsing | Select-Object -ExpandProperty Content\")",
+      "Bash(powershell -Command \"Start-Sleep 4; try { Invoke-WebRequest -Uri 'http://localhost:5173' -UseBasicParsing -TimeoutSec 5 | Select-Object -ExpandProperty StatusCode } catch { $_.Exception.Message }\")",
+      "Bash(powershell -Command \"\n\\\\$tmpDir = 'C:\\\\Users\\\\itaux\\\\AppData\\\\Local\\\\Temp\\\\pw-test'\nNew-Item -ItemType Directory -Force -Path \\\\$tmpDir | Out-Null\nSet-Location \\\\$tmpDir\n'{\\\\\"name\\\\\":\\\\\"pw-test\\\\\",\\\\\"version\\\\\":\\\\\"1.0.0\\\\\"}' | Out-File package.json -Encoding UTF8\nnpm install playwright --prefer-offline 2>&1 | Select-String -NotMatch 'npm warn'\nWrite-Host 'DONE'\n\")",
+      "Bash(powershell -Command \"Set-Location 'C:\\\\Users\\\\itaux\\\\AppData\\\\Local\\\\Temp\\\\pw-test'; node test.js 2>&1\")",
+      "Bash(powershell -Command \"Select-String -Path 'C:\\\\Users\\\\itaux\\\\Downloads\\\\qc-track-main\\\\frontend\\\\src\\\\pages\\\\Dashboard.jsx' -Pattern 'Nueva|crear|button' -CaseSensitive:\\\\$false | Select-Object -First 15 | ForEach-Object { \\\\$_.Line.Trim\\(\\) }\")",
+      "Bash(powershell -Command \"Select-String -Path 'C:\\\\Users\\\\itaux\\\\Downloads\\\\qc-track-main\\\\frontend\\\\src\\\\pages\\\\Dashboard.jsx' -Pattern 'placeholder|input|label|Crear' | ForEach-Object { \\\\$_.Line.Trim\\(\\) }\")",
+      "Bash(powershell -Command \"\n\\\\$procs = Get-NetTCPConnection -LocalPort 3100 -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess\nif \\(\\\\$procs\\) { \\\\$procs | ForEach-Object { Stop-Process -Id \\\\$_ -Force -ErrorAction SilentlyContinue } }\nStart-Sleep 1\nWrite-Host 'Old backend killed'\n\")",
+      "Bash(powershell -Command \"Set-Location 'C:\\\\Users\\\\itaux\\\\AppData\\\\Local\\\\Temp\\\\pw-test'; node test2.js 2>&1\")",
+      "Bash(powershell -Command \"\\(Invoke-WebRequest -Uri 'http://localhost:5173' -UseBasicParsing -TimeoutSec 3\\).StatusCode\" 2>&1)",
+      "Bash(powershell -Command \"Set-Location 'C:\\\\Users\\\\itaux\\\\AppData\\\\Local\\\\Temp\\\\pw-test'; node test-analyst.js 2>&1\")",
+      "Bash(powershell -Command \"Select-String -Path 'C:\\\\Users\\\\itaux\\\\Downloads\\\\qc-track-main\\\\backend\\\\routes\\\\samples.js' -Pattern 'RETRY|CANCEL' | ForEach-Object { \\\\$_.Line.Trim\\(\\) }\")"
+    ]
+  }
+}

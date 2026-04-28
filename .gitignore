@@ -1,0 +1,6 @@
+﻿node_modules/
+backend/qc.db
+backend/qc.db-shm
+backend/qc.db-wal
+dist/
+.env
